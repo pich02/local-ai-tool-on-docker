@@ -1,0 +1,120 @@
+version: '3.5'
+
+services:
+  tabby:
+    restart: always
+    image: tabbyml/tabby:latest
+    command: serve
+    networks:
+      - local-ai
+    environment:
+      - TABBY_DISABLE_USAGE_COLLECTION=1
+    volumes:
+      - ".tabby/:/data"
+    ports:
+      - 80:8080
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.8'
+        limits:
+          cpus: '0.8'
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    networks:
+      - local-ai
+    environment:
+      - OLLAMA_KEEP_ALIVE=60m
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [ gpu ]
+
+  postgres:
+    image: postgres:14-alpine
+    restart: always
+    networks:
+      - local-ai
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_USER=skyvern
+      - POSTGRES_PASSWORD=skyvern
+      - POSTGRES_DB=skyvern
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U skyvern" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  skyvern:
+    image: public.ecr.aws/skyvern/skyvern:latest
+    restart: on-failure
+    networks:
+      - local-ai
+    ports:
+      - 8000:8000
+      - 9222:9222 # for cdp browser forwarding
+    volumes:
+      - ./artifacts:/data/artifacts
+      - ./videos:/data/videos
+      - ./har:/data/har
+      - ./log:/data/log
+      - ./.streamlit:/app/.streamlit
+    environment:
+      - DATABASE_STRING=postgresql+psycopg://skyvern:skyvern@postgres:5432/skyvern
+      - BROWSER_TYPE=chromium-headful
+      - ENABLE_CODE_BLOCK=true
+      - LLM_KEY=OLLAMA
+      - ENABLE_OLLAMA=true
+      - OLLAMA_MODEL=mistral:7b
+      - OLLAMA_SERVER_URL=http://ollama:11434
+      - LLM_CONFIG_MAX_TOKENS=128000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "test", "-f", "/app/.streamlit/secrets.toml" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  skyvern-ui:
+    image: public.ecr.aws/skyvern/skyvern-ui:latest
+    restart: on-failure
+    networks:
+      - local-ai
+    ports:
+      - 8080:8080
+      - 9090:9090
+    volumes:
+      - ./artifacts:/data/artifacts
+      - ./videos:/data/videos
+      - ./har:/data/har
+      - ./.streamlit:/app/.streamlit
+    environment:
+      - VITE_WSS_BASE_URL=ws://[YOUR_IP]:8000/api/v1
+      - VITE_ARTIFACT_API_BASE_URL=http://[YOUR_IP]:9090
+      - VITE_API_BASE_URL=http://[YOUR_IP]:8000/api/v1
+
+    depends_on:
+      skyvern:
+        condition: service_healthy
+
+volumes:
+  ollama_data:
+    name: ollama_data
+
+networks:
+  local-ai:
+    name: local-ai
+    driver: bridge
