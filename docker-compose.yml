@@ -11,21 +11,26 @@ services:
       - TABBY_DISABLE_USAGE_COLLECTION=1
     volumes:
       - ".tabby/:/data"
-    ports:
-      - 80:8080
+#    ports:
+#      - 80:8080
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "-X", 'GET', 'http://tabby/v1/health', "-H", 'accept: application/json', "-H", 'Authorization: Bearer auth_66c997c18e5f4d9d88171f212e31e2aa' ]
+      interval: 60s
+      timeout: 10s
+      retries: 5
     deploy:
       resources:
         reservations:
-          cpus: '0.8'
+          cpus: '2'
         limits:
-          cpus: '0.8'
+          cpus: '2'
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    restart: on-failure
     networks:
       - local-ai
-    environment:
-      - OLLAMA_KEEP_ALIVE=60m
     ports:
       - "11434:11434"
     volumes:
@@ -59,11 +64,12 @@ services:
   skyvern:
     image: public.ecr.aws/skyvern/skyvern:latest
     restart: on-failure
+    container_name: skyvern
     networks:
       - local-ai
-    ports:
-      - 8000:8000
-      - 9222:9222 # for cdp browser forwarding
+#    ports:
+#      - 8000:8000
+#      - 9222:9222 # for cdp browser forwarding
     volumes:
       - ./artifacts:/data/artifacts
       - ./videos:/data/videos
@@ -76,7 +82,7 @@ services:
       - ENABLE_CODE_BLOCK=true
       - LLM_KEY=OLLAMA
       - ENABLE_OLLAMA=true
-      - OLLAMA_MODEL=mistral:7b
+      - OLLAMA_MODEL=mistral:3b
       - OLLAMA_SERVER_URL=http://ollama:11434
       - LLM_CONFIG_MAX_TOKENS=128000
     depends_on:
@@ -90,25 +96,42 @@ services:
 
   skyvern-ui:
     image: public.ecr.aws/skyvern/skyvern-ui:latest
+    container_name: skyvern-ui
     restart: on-failure
     networks:
       - local-ai
-    ports:
-      - 8080:8080
-      - 9090:9090
+#    ports:
+#      - 8080:8080
+#      # - 9090:9090
     volumes:
       - ./artifacts:/data/artifacts
       - ./videos:/data/videos
       - ./har:/data/har
       - ./.streamlit:/app/.streamlit
     environment:
-      - VITE_WSS_BASE_URL=ws://[YOUR_IP]:8000/api/v1
-      - VITE_ARTIFACT_API_BASE_URL=http://[YOUR_IP]:9090
-      - VITE_API_BASE_URL=http://[YOUR_IP]:8000/api/v1
-
+      - VITE_WSS_BASE_URL=ws://skyvern:8000/api/v1
+      - VITE_ARTIFACT_API_BASE_URL=http://skyvern-ui:9090
+      - VITE_API_BASE_URL=http://skyvern:8000/api/v1
     depends_on:
       skyvern:
         condition: service_healthy
+
+  haproxy:
+    image: haproxy:latest
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      skyvern-ui:
+        condition: service_healthy
+      tabby:
+        condition: service_healthy
+    volumes:
+      - ./data/haproxy/:/usr/local/etc/haproxy:ro
+      - ./certs:/certs:ro
+    networks:
+      - local-ai
 
 volumes:
   ollama_data:
@@ -117,4 +140,3 @@ volumes:
 networks:
   local-ai:
     name: local-ai
-    driver: bridge

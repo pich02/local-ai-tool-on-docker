@@ -1,0 +1,23 @@
+[model.chat.http]
+kind = "openai/chat"
+model_name = "mistral:7b"
+api_endpoint = "http://localhost:11434/v1"
+
+[model.completion.http]
+kind = "ollama/completion"
+model_name = "Qwen2.5-Coder:3b"
+api_endpoint = "http://localhost:11434"
+prompt_template = "<PRE> {prefix} <SUF>{suffix} <MID>"  # Example prompt template for the CodeLlama model series.
+
+[model.embedding.http]
+kind = "ollama/embedding"
+model_name = "nomic-embed-text"
+api_endpoint = "http://localhost:11434"
+
+[anonymousUsageTracking]
+disable = true # set to true to disable
+
+[answer]
+system_prompt = """
+As a senior developper. Explain, advice, correct and give example of how to code.
+"""
